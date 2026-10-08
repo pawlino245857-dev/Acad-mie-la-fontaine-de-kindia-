@@ -3,42 +3,53 @@ name: Build Android
 on:
   workflow_dispatch:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main" ]
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Récupérer le dépôt
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Installer Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
-      - name: Install dependencies
+      - name: Décompresser l'application
+        run: |
+          rm -rf app
+          mkdir app
+          unzip -q Academie_La_Fontaine_GitHub_Compilation.zip -d app
+
+      - name: Installer les dépendances
+        working-directory: app
         run: npm install
 
-      - name: Add Android platform
+      - name: Ajouter Android
+        working-directory: app
         run: npx cap add android
 
-      - name: Sync app
+      - name: Synchroniser Capacitor
+        working-directory: app
         run: npx cap sync android
 
-      - name: Setup Java
+      - name: Installer Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
 
-      - name: Build APK
-        working-directory: android
-        run: chmod +x gradlew && ./gradlew assembleDebug
+      - name: Compiler APK
+        working-directory: app/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
 
-      - name: Upload APK
+      - name: Récupérer l'APK
         uses: actions/upload-artifact@v4
         with:
-          name: academie-la-fontaine-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: academie-la-fontaine-apk
+          path: app/android/app/build/outputs/apk/debug/app-debug.apk
