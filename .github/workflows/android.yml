@@ -1,94 +1,109 @@
-name: Build Android
+name: Build APK - Academie La Fontaine
 
 on:
   workflow_dispatch:
   push:
-    branches: ["main"]
+    branches:
+      - main
 
 jobs:
   build:
+    name: Construire APK Android
     runs-on: ubuntu-latest
 
     steps:
-      - name: Récupérer le dépôt
+      - name: Recuperer le projet
         uses: actions/checkout@v4
+
+      - name: Installer Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
 
       - name: Installer Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: "22"
+
+      - name: Installer unzip
+        run: sudo apt-get update && sudo apt-get install -y unzip
 
       - name: Trouver l'application
+        shell: bash
         run: |
-          ZIP=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
+          set -e
 
-          if [ -z "$ZIP" ]; then
-            echo "Aucun fichier ZIP trouvé"
-            exit 1
-          fi
-
-          echo "ZIP trouvé : $ZIP"
-
-          rm -rf app
-          mkdir app
-
-          unzip -q "$ZIP" -d app
-
-          echo "Contenu de app :"
-          find app -maxdepth 3 -type f | head -100
-
-      - name: Préparer l'application Web
-        run: |
+          rm -rf web
           mkdir -p web
+          mkdir -p /tmp/extraction
 
-          INDEX=$(find app -type f -name "index.html" | head -n 1)
+          FOUND=""
 
-          if [ -z "$INDEX" ]; then
-            echo "index.html introuvable"
-            exit 1
+          while IFS= read -r -d '' ZIP; do
+            echo "Test du fichier : $ZIP"
+
+            rm -rf /tmp/extraction/*
+            unzip -q "$ZIP" -d /tmp/extraction || continue
+
+            INDEX=$(find /tmp/extraction -type f -name "index.html" | head -n 1)
+
+            if [ -n "$INDEX" ]; then
+              echo "Application trouvee : $INDEX"
+
+              APP_DIR=$(dirname "$INDEX")
+              cp -R "$APP_DIR"/. web/
+
+              FOUND="yes"
+              break
+            fi
+          done < <(find . -type f -iname "*.zip" -not -path "./.git/*" -print0)
+
+          if [ "$FOUND" != "yes" ]; then
+            echo "Aucun ZIP contenant index.html n'a ete trouve."
+            echo "Recherche directe de index.html..."
+
+            INDEX=$(find . -type f -name "index.html" -not -path "./.git/*" | head -n 1)
+
+            if [ -z "$INDEX" ]; then
+              echo "ERREUR : index.html introuvable."
+              exit 1
+            fi
+
+            APP_DIR=$(dirname "$INDEX")
+            cp -R "$APP_DIR"/. web/
           fi
 
-          DIR=$(dirname "$INDEX")
+          echo "Contenu de l'application :"
+          find web -maxdepth 3 -type f
 
-          echo "Application trouvée dans : $DIR"
-
-          cp -r "$DIR"/. web/
-
-          echo "Contenu Web :"
-          ls -la web
-
-      - name: Installer Capacitor
+      - name: Initialiser le projet Android
         run: |
           npm init -y
-          npm install @capacitor/core @capacitor/cli @capacitor/android
+          npm install @capacitor/core@7 @capacitor/cli@7 @capacitor/android@7
 
       - name: Configurer Capacitor
         run: |
-          cat > capacitor.config.ts <<'EOF'
-          import type { CapacitorConfig } from '@capacitor/cli';
-
-          const config: CapacitorConfig = {
-            appId: 'com.academielafontaine.kindia',
-            appName: 'Académie La Fontaine de Kindia',
-            webDir: 'web'
-          };
-
-          export default config;
+          cat > capacitor.config.json <<'EOF'
+          {
+            "appId": "com.academielafontaine.kindia",
+            "appName": "Academie La Fontaine de Kindia",
+            "webDir": "web"
+          }
           EOF
 
-      - name: Créer Android
+      - name: Creer le projet Android
         run: |
           npx cap add android
           npx cap sync android
 
-      - name: Construire APK
+      - name: Construire l'APK
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleDebug
+          ./gradlew assembleDebug --no-daemon
 
-      - name: Publier APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Academie-La-Fontaine-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Verifier l'APK
+        run: |
+          ls -lh android/app/build/outputs/apk/debug/
+          test -f android/app/build/outputs/apk/debug/app-debug
