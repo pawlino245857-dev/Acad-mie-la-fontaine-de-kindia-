@@ -3,7 +3,7 @@ name: Build Android
 on:
   workflow_dispatch:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
   build:
@@ -18,38 +18,77 @@ jobs:
         with:
           node-version: 22
 
-      - name: Décompresser l'application
+      - name: Trouver l'application
         run: |
+          ZIP=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
+
+          if [ -z "$ZIP" ]; then
+            echo "Aucun fichier ZIP trouvé"
+            exit 1
+          fi
+
+          echo "ZIP trouvé : $ZIP"
+
           rm -rf app
           mkdir app
-          unzip -q Academie_La_Fontaine_GitHub_Compilation.zip -d app
 
-      - name: Installer les dépendances
-        working-directory: app
-        run: npm install
+          unzip -q "$ZIP" -d app
 
-      - name: Ajouter Android
-        working-directory: app
-        run: npx cap add android
+          echo "Contenu de app :"
+          find app -maxdepth 3 -type f | head -100
 
-      - name: Synchroniser Capacitor
-        working-directory: app
-        run: npx cap sync android
-
-      - name: Installer Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Compiler APK
-        working-directory: app/android
+      - name: Préparer l'application Web
         run: |
+          mkdir -p web
+
+          INDEX=$(find app -type f -name "index.html" | head -n 1)
+
+          if [ -z "$INDEX" ]; then
+            echo "index.html introuvable"
+            exit 1
+          fi
+
+          DIR=$(dirname "$INDEX")
+
+          echo "Application trouvée dans : $DIR"
+
+          cp -r "$DIR"/. web/
+
+          echo "Contenu Web :"
+          ls -la web
+
+      - name: Installer Capacitor
+        run: |
+          npm init -y
+          npm install @capacitor/core @capacitor/cli @capacitor/android
+
+      - name: Configurer Capacitor
+        run: |
+          cat > capacitor.config.ts <<'EOF'
+          import type { CapacitorConfig } from '@capacitor/cli';
+
+          const config: CapacitorConfig = {
+            appId: 'com.academielafontaine.kindia',
+            appName: 'Académie La Fontaine de Kindia',
+            webDir: 'web'
+          };
+
+          export default config;
+          EOF
+
+      - name: Créer Android
+        run: |
+          npx cap add android
+          npx cap sync android
+
+      - name: Construire APK
+        run: |
+          cd android
           chmod +x gradlew
           ./gradlew assembleDebug
 
-      - name: Récupérer l'APK
+      - name: Publier APK
         uses: actions/upload-artifact@v4
         with:
-          name: academie-la-fontaine-apk
-          path: app/android/app/build/outputs/apk/debug/app-debug.apk
+          name: Academie-La-Fontaine-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
